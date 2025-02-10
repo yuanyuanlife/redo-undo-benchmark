@@ -11,22 +11,50 @@ import {
 } from './history-managers';
 import { fromJS, List, Map } from 'immutable';
 
+interface PerformanceResult {
+  duration: number;
+  memoryUsed: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class BenchmarkService {
   private data = generateLargeData(100);
 
+  private getMemoryUsage(): number {
+    // 使用 Chrome 的 performance.memory API
+    const memory = (performance as any).memory;
+    if (!memory) {
+      console.warn('请使用 Chrome 并添加 --enable-precise-memory-info 标志来获取准确的内存使用数据');
+      return 0;
+    }
+    return memory.usedJSHeapSize / 1024; // 转换为 KB
+  }
+
   async runBenchmarks() {
-    const results: Record<string, Record<string, number>> = {
+    if (!(performance as any).memory) {
+      console.warn(`
+        注意：要获取准确的内存使用数据，请：
+        1. 使用 Chrome 浏览器
+        2. 使用以下命令行参数启动 Chrome：
+           --enable-precise-memory-info --js-flags="--expose-gc"
+        
+        Windows: chrome.exe --enable-precise-memory-info --js-flags="--expose-gc"
+        Mac: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --enable-precise-memory-info --js-flags="--expose-gc"
+        Linux: google-chrome --enable-precise-memory-info --js-flags="--expose-gc"
+      `);
+    }
+
+    const results: Record<string, Record<string, PerformanceResult>> = {
       'Add': {},
       'Delete': {},
       'DeepModify': {}
     };
 
     const implementations: Array<[string, () => HistoryManager<any>]> = [
-      ['Lodash', () => new LodashHistoryManager(this.data)],
-      ['JSON', () => new JsonHistoryManager(this.data)],
+      ['Lodash deepclone', () => new LodashHistoryManager(this.data)],
+      ['JSON.stringify', () => new JsonHistoryManager(this.data)],
       ['Klona', () => new KlonaHistoryManager(this.data)],
       ['Immer', () => new ImmerHistoryManager(this.data)],
       ['Immutable', () => new ImmutableHistoryManager(this.data)],
@@ -36,31 +64,67 @@ export class BenchmarkService {
     for (const [name, createManager] of implementations) {
       console.log(`\n测试 ${name}:`);
       try {
-        // 为每个实现创建新的管理器
-        const manager = (createManager as () => HistoryManager<any>)();
+        const manager = createManager();
         
-        // 运行测试
-        results['Add'][name] = await this.benchmarkAdd({ [name]: manager });
+        // 强制垃圾回收（如果可用）
+        if ((window as any).gc) {
+          (window as any).gc();
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
         
-        // 清理内存
-        await this.cleanupMemory();
+        const initialMemory = this.getMemoryUsage();
         
-        results['Delete'][name] = await this.benchmarkDelete({ [name]: manager });
-        await this.cleanupMemory();
+        // 运行添加测试
+        const addResult = await this.benchmarkAdd(name, manager);
+        const afterAddMemory = this.getMemoryUsage();
+        results['Add'][name] = {
+          duration: addResult,
+          memoryUsed: Math.max(0, afterAddMemory - initialMemory)
+        };
         
-        results['DeepModify'][name] = await this.benchmarkDeepModify({ [name]: manager });
-        await this.cleanupMemory();
+        // 强制垃圾回收
+        if ((window as any).gc) {
+          (window as any).gc();
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 运行删除测试
+        const deleteResult = await this.benchmarkDelete(name, manager);
+        const afterDeleteMemory = this.getMemoryUsage();
+        results['Delete'][name] = {
+          duration: deleteResult,
+          memoryUsed: Math.max(0, afterDeleteMemory - afterAddMemory)
+        };
+        
+        // 强制垃圾回收
+        if ((window as any).gc) {
+          (window as any).gc();
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 运行修改测试
+        const modifyResult = await this.benchmarkDeepModify(name, manager);
+        const afterModifyMemory = this.getMemoryUsage();
+        results['DeepModify'][name] = {
+          duration: modifyResult,
+          memoryUsed: Math.max(0, afterModifyMemory - afterDeleteMemory)
+        };
         
       } catch (error) {
         console.error(`${name} 测试失败:`, error);
-        results['Add'][name] = -1;
-        results['Delete'][name] = -1;
-        results['DeepModify'][name] = -1;
       }
     }
 
-    // 输出最终结果
-    console.table(results);
+    // 输出详细结果
+    console.log('\n性能测试结果:');
+    Object.entries(results).forEach(([operation, implResults]) => {
+      console.log(`\n${operation}操作:`);
+      console.table(Object.entries(implResults).map(([impl, result]) => ({
+        '实现': impl,
+        '耗时(ms)': result.duration.toFixed(2),
+        '内存增长(KB)': result.memoryUsed.toFixed(2)
+      })));
+    });
   }
 
   private async cleanupMemory() {
@@ -73,8 +137,7 @@ export class BenchmarkService {
     }
   }
 
-  private async benchmarkAdd(managers: Record<string, HistoryManager<any>>): Promise<number> {
-    const [name, manager] = Object.entries(managers)[0];
+  private async benchmarkAdd(name: string, manager: HistoryManager<any>): Promise<number> {
     const start = performance.now();
     
     try {
@@ -142,8 +205,7 @@ export class BenchmarkService {
     }
   }
 
-  private async benchmarkDelete(managers: Record<string, HistoryManager<any>>): Promise<number> {
-    const [name, manager] = Object.entries(managers)[0];
+  private async benchmarkDelete(name: string, manager: HistoryManager<any>): Promise<number> {
     const start = performance.now();
     
     try {
@@ -178,8 +240,7 @@ export class BenchmarkService {
     }
   }
 
-  private async benchmarkDeepModify(managers: Record<string, HistoryManager<any>>): Promise<number> {
-    const [name, manager] = Object.entries(managers)[0];
+  private async benchmarkDeepModify(name: string, manager: HistoryManager<any>): Promise<number> {
     const start = performance.now();
     
     try {
