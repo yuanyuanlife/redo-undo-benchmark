@@ -72,11 +72,31 @@
    - inverse 方法：测试反函数性能
    - seriesBiexponential：评估级数计算性能
 
+5. **内存占用测试**
+   - 测试缓存策略的内存影响
+   - 评估单个实例的内存占用
+   - 测试不同参数组合的内存效率
+   - 样本数：1000
+
 ### 性能指标
 - 操作耗时（微秒级）
 - 批处理效率
 - 内存使用情况
+  - 总体内存占用（KB）
+  - 每实例平均内存（KB）
+  - 缓存实例数量
 - 平均响应时间
+
+### 内存优化建议
+1. **缓存策略优化**
+   - 限制最大缓存实例数
+   - 实现 LRU 缓存淘汰
+   - 监控内存阈值
+
+2. **参数优化**
+   - 合理设置参数精度
+   - 复用相近参数的实例
+   - 定期清理未使用实例
 
 ## 使用方法
 
@@ -98,6 +118,47 @@
    - 建议在 Chrome 开发者工具中进行测试
    - 可使用 Performance 面板分析详细性能数据
    - 考虑禁用垃圾回收对测试的影响
+
+### Chrome 启动命令
+
+为了获取准确的内存使用数据和启用手动垃圾回收，需要使用特定参数启动 Chrome：
+
+#### Windows
+```bash
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --enable-precise-memory-info --js-flags="--expose-gc" --enable-memory-info
+```
+
+#### macOS
+```bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --enable-precise-memory-info --js-flags="--expose-gc" --enable-memory-info
+```
+
+#### Linux
+```bash
+google-chrome --enable-precise-memory-info --js-flags="--expose-gc" --enable-memory-info
+```
+
+参数说明：
+- `--enable-precise-memory-info`: 启用精确的内存信息统计
+- `--js-flags="--expose-gc"`: 暴露垃圾回收接口，允许手动触发 GC
+- `--enable-memory-info`: 启用额外的内存信息
+
+### 开发者工具使用建议
+
+1. **内存面板（Memory）**
+   - 使用堆快照（Heap Snapshot）分析内存占用
+   - 观察内存泄漏情况
+   - 分析对象引用关系
+
+2. **性能面板（Performance）**
+   - 记录内存使用趋势
+   - 分析垃圾回收行为
+   - 观察内存分配情况
+
+3. **任务管理器**
+   - 监控整体 JavaScript 内存使用
+   - 观察 DOM 节点数量
+   - 跟踪事件监听器数量
 
 ## 内存使用对比
 
